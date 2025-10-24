@@ -1,131 +1,132 @@
-
-# sreamlit application
 import streamlit as st
 import pandas as pd
-import numpy as np
 import pickle
 from datetime import datetime
-from pathlib import Path
-import matplotlib.pyplot as plt
 import xgboost as xgb
+from pathlib import Path
 
-
-# load resources model
+#loading model and encoder
 @st.cache_resource
-def load_resources(path: Path, resource_type: str):
-    if not path.exists():
-        raise FileNotFoundError(f"resource file not found at {path}")
-    
-    try:
-        if resource_type == "pickle":
-            with open(path, "rb") as f:
-                resource = pickle.load(f)
-        
-        elif resource_type == "xgboost":
-            resource = xgb.XGBRegressor()
-            resource.load_model(str(path))
+def load_model():
+    model_path = Path("app/../models/model.json")
+    if not model_path.exists():
+        raise FileNotFoundError(f"Model file not found at {model_path}")
+    model = xgb.XGBRegressor()
+    model.load_model(str(model_path))
 
-        else:
-            raise ValueError(f"unknown resource_type: {resource_type}")
-        
-    except Exception as e:
-        raise RuntimeError(f"failed to  load resources from {path}: {e}")
+    return model
 
-    return resource
 
-# resources paths
-model_path = Path("app/../models/xgboost_energy_model.json")
-encoder_path = Path("app/../models/label_encoder.pkl")
+@st.cache_resource
+def load_encoders():
+    encoder_path = Path("app/../models/encoder.pkl")
+    if not encoder_path.exists():
+        raise FileNotFoundError(f"Encoder file not found at {encoder_path}")
+    with open(encoder_path, "rb") as f:
+        encoders = pickle.load(f)
+    return encoders
 
-# loading model and encoder
-model = load_resources(model_path, "xgboost")
-encoder = load_resources(encoder_path, "pickle")
 
-def preprocess_input(df, encoder):
-    # Convert Date column
-    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-    df["day"] = df["Date"].dt.day
-    df["month"] = df["Date"].dt.month
-    df["year"] = df["Date"].dt.year
+# preprocessing function
+def preprocess_input(input_data: pd.DataFrame, encoders: dict) -> pd.DataFrame:
+    df = input_data.copy()
 
-    # Extract hour from Time
-    df["hour"] = df["Time"].apply(lambda x: int(x.split(":")[0]) if isinstance(x, str) else int(x))
+    # Extract date-time features
+    df["Date"] = pd.to_datetime(df["Date"])
+    df["Time"] = pd.to_datetime(df["Time"], format="%H:%M:%S")
 
-    # Derive temporal features
-    df["Day_of_week"] = df["Date"].dt.day_name()
-    df["WeekStatus"] = df["Day_of_week"].apply(lambda x: "Weekend" if x in ["Saturday", "Sunday"] else "Weekday")
-    df["is_weekend"] = df["WeekStatus"].apply(lambda x: 1 if x == "Weekend" else 0)
-    df["NSM"] = df["hour"] * 3600
+    df["Day"] = df["Date"].dt.day
+    df["Month"] = df["Date"].dt.month
+    df["Year"] = df["Date"].dt.year
+    df["Hour"] = df["Time"].dt.hour
+    df["Minute"] = df["Time"].dt.minute
+    df["Second"] = df["Time"].dt.second
 
     # Encode categorical features
     cat_features = ["WeekStatus", "Day_of_week", "Load_Type"]
+    for feature in cat_features:
+        if feature in df.columns:
+            le = encoders.get(feature)
+            if le:
+                df[feature] = le.transform(df[feature])
+            else:
+                raise ValueError(f"No encoder found for feature: {feature}")
 
-    for col in cat_features:
-        le = encoder[col]
-        df[col] = df[col].apply(lambda x: le.transform([x])[0] if x in le.classes_ 
-                                else le.transform([le.classes_[0]])[0])  # unseen label fallback
-
-    # Drop raw date/time
+    # Drop unused columns
     df.drop(columns=["Date", "Time"], inplace=True)
 
     return df
 
 
-# ============================================================
-# Streamlit interface
-# ============================================================
-st.set_page_config(page_title="Steel Industry Energy Predictor", page_icon="⚡", layout="centered")
-
-st.title("⚙️ Steel Industry Energy Consumption Predictor")
-st.markdown(
-    """
-    This Streamlit app uses a trained **XGBoost model** to predict steel industry energy consumption.  
-    Provide input values below and get an instant prediction.
-    """
+# streamlit ui
+st.set_page_config(
+    page_title="Steel Industry Energy Consumption Predictor",
+    layout="wide",
+    page_icon="⚙️",
 )
 
-# -----------------------
-# Input form
-# -----------------------
-with st.form("energy_form"):
-    st.subheader("Enter Input Parameters")
+st.title("⚙️ Steel Industry Energy Consumption Prediction")
+st.markdown("Predict **energy consumption (kWh)** using operational and environmental data.")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        date = st.date_input("Date")
-        time = st.text_input("Time (HH:MM)", "08:00")
-        lag_reactive = st.number_input("Lagging Current Reactive Power (kVarh)", min_value=0.0, value=120.0)
-        lead_reactive = st.number_input("Leading Current Reactive Power (kVarh)", min_value=0.0, value=60.0)
-    with col2:
-        lag_pf = st.number_input("Lagging Current Power Factor", min_value=0.0, max_value=1.0, value=0.9)
-        lead_pf = st.number_input("Leading Current Power Factor", min_value=0.0, max_value=1.0, value=0.7)
-        co2 = st.number_input("CO2 Emission (tCO2)", min_value=0.0, value=2.5)
-        load_type = st.selectbox("Load Type", ["Light_Load", "Medium_Load", "Heavy_Load"])
+# Sidebar for user input
+st.sidebar.header("Input Parameters")
 
-    submit = st.form_submit_button("Predict Energy Usage")
+# Date and time
+date_input = st.sidebar.date_input("Date")
+time_input = st.sidebar.time_input("Time")
 
-# -----------------------
-# Prediction
-# -----------------------
-if submit:
-    # Construct single-row DataFrame
-    input_data = pd.DataFrame({
-        "Date": [date],
-        "Time": [time],
-        "Lagging_Current_Reactive.Power_kVarh": [lag_reactive],
-        "Leading_Current_Reactive_Power_kVarh": [lead_reactive],
-        "Lagging_Current_Power_Factor": [lag_pf],
-        "Leading_Current_Power_Factor": [lead_pf],
-        "CO2(tCO2)": [co2],
-        "Load_Type": [load_type]
-    })
+# Categorical inputs
+week_status = st.sidebar.selectbox("Week Status", ["Weekday", "Weekend"])
+day_of_week = st.sidebar.selectbox(
+    "Day of Week", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+)
+load_type = st.sidebar.selectbox("Load Type", ["Light Load", "Medium Load", "Maximum Load"])
 
-    # Preprocess input
-    processed_input = preprocess_input(input_data, encoder)
+# Numerical inputs
+lagging_current_reactive_power = st.sidebar.number_input("Lagging Current Reactive Power (kVarh)", min_value=0.0)
+leading_current_reactive_power = st.sidebar.number_input("Leading Current Reactive Power (kVarh)", min_value=0.0)
+co2 = st.sidebar.number_input("CO₂ Emission (kg)", min_value=0.0)
+temperature = st.sidebar.number_input("Temperature (°C)", min_value=-10.0, max_value=60.0)
+humidity = st.sidebar.number_input("Humidity (%)", min_value=0.0, max_value=100.0)
+wind_speed = st.sidebar.number_input("Wind Speed (m/s)", min_value=0.0, max_value=50.0)
+visibility = st.sidebar.number_input("Visibility (km)", min_value=0.0, max_value=10.0)
+dew_point = st.sidebar.number_input("Dew Point (°C)", min_value=-20.0, max_value=30.0)
+apparent_temperature = st.sidebar.number_input("Apparent Temperature (°C)", min_value=-20.0, max_value=60.0)
+pressure = st.sidebar.number_input("Pressure (mmHg)", min_value=500.0, max_value=1100.0)
 
-    # Prediction
-    prediction = model.predict(processed_input)[0]
+# Combine inputs into DataFrame
+input_data = pd.DataFrame(
+    {
+        "Date": [date_input],
+        "Time": [time_input],
+        "WeekStatus": [week_status],
+        "Day_of_week": [day_of_week],
+        "Load_Type": [load_type],
+        "Lagging_Current_Reactive_Power_kVarh": [lagging_current_reactive_power],
+        "Leading_Current_Reactive_Power_kVarh": [leading_current_reactive_power],
+        "CO2": [co2],
+        "Temperature": [temperature],
+        "Humidity": [humidity],
+        "Wind_Speed": [wind_speed],
+        "Visibility": [visibility],
+        "Dew_Point": [dew_point],
+        "Apparent_Temperature": [apparent_temperature],
+        "Pressure": [pressure],
+    }
+)
 
-    st.success(f"### ⚡ Predicted Energy Usage: {prediction:.3f} kWh")
+# prediction
+if st.button("Predict Energy Usage (kWh)"):
+    try:
+        model = load_model()
+        encoders = load_encoders()
 
-    st.caption("Model: XGBoost | Encoder: Saved categorical transformer used during training")
+        processed_input = preprocess_input(input_data, encoders)
+        prediction = model.predict(processed_input)[0]
+
+        st.success(f"**Predicted Energy Usage:** {prediction:.2f} kWh")
+    except Exception as e:
+        st.error(f"Error during prediction: {e}")
+
+st.markdown("---")
+st.caption("Developed by Kami • Powered by XGBoost and Streamlit")
