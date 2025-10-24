@@ -5,10 +5,10 @@ import pandas as pd
 import numpy as np
 import pickle
 from datetime import datetime
-from pathlib import path
+from pathlib import Path
 import matplotlib.pyplot as plt
 
-MODEL_PATH = path("../models/energy_model.sav")
+MODEL_PATH = Path("app/../models/energy_model.sav")
 
 # loading the model
 @st.cache_resource
@@ -22,3 +22,15 @@ def load_model():
     return model
 
 model = load_model()
+
+# tittle
+st.title("Steel Industry Energy Consumption Predictor")
+st.write("prediction energy usage (kWh) based on operational parameters.")
+
+#user inputs
+st.header("Input Parameters")
+
+# date and time inputs
+date_input = st.date_input("Date")
+time_input = st.time_input("Time")
+dt = datetime.combine(date_input, time_input)
