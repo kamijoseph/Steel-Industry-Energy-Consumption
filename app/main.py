@@ -15,8 +15,11 @@ def load_resources(path):
     if not path.exists():
         raise FileNotFoundError(f"resource file not found at {path}")
     
-    with open(path, "rb") as f:
-        resource = pickle.load(f)
+    try:
+        with open(path, "rb") as f:
+            resource = pickle.load(f)
+    except Exception as e:
+        raise RuntimeError(f"failed to  load resources from {path}: {e}")
 
     return resource
 
