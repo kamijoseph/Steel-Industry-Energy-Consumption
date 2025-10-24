@@ -53,7 +53,7 @@ def create_features_from_datetime(date_input, time_input):
     # Combine date and time
     datetime_obj = datetime.combine(date_input, time_input)
     
-    # Extract features (matching your notebook)
+    # Extract features
     features = {
         "hour": datetime_obj.hour,
         "day": datetime_obj.day,
@@ -197,32 +197,36 @@ def main():
         st.write(f"- Day: {time_features['day']}")
         st.write(f"- Month: {time_features['month']}")
     
+    
     # Prediction button
     st.markdown("---")
-    if st.button("🚀 Predict Energy Consumption", use_container_width=True):
+    if st.button("🚀Predict Energy Consumption", use_container_width=True):
         try:
             # Preprocess the input data
             processed_data = preprocess_input(input_data, encoders)
             
-            # Convert to DataFrame with correct column order (as expected by your model)
             feature_names = [
-                'Lagging_Current_Reactive.Power_kVarh', 
+                'Lagging_Current_Reactive.Power_kVarh',
                 'Leading_Current_Reactive_Power_kVarh',
-                'CO2(tCO2)', 
-                'Lagging_Current_Power_Factor', 
+                'CO2(tCO2)',
+                'Lagging_Current_Power_Factor',
                 'Leading_Current_Power_Factor',
-                'NSM', 
-                'WeekStatus', 
-                'Day_of_week', 
-                'Load_Type', 
-                'hour', 
+                'NSM',
+                'WeekStatus',
+                'Day_of_week',
+                'Load_Type',
+                'hour',
                 'day',
-                'month', 
-                'year', 
+                'month',
+                'year',
                 'is_weekend'
             ]
             
-            input_df = pd.DataFrame([processed_data])[feature_names]
+            # Create DataFrame with the correct feature order
+            input_df = pd.DataFrame([processed_data])
+            
+            # Reorder columns to match training data
+            input_df = input_df[feature_names]
             
             # Make prediction
             prediction = model.predict(input_df)[0]
@@ -250,50 +254,8 @@ def main():
             
         except Exception as e:
             st.error(f"Error making prediction: {e}")
-            st.error("Please check that all inputs are within valid ranges.")
-    
-    # Model information section
-    with st.expander("ℹ️ About the Model & Data"):
-        st.markdown("""
-        **Model Details:**
-        - **Algorithm**: XGBoost Regressor
-        - **Training Data**: Steel industry operational data (35,040 records)
-        - **Target Variable**: Usage_kWh (Energy Consumption)
-        - **Key Features**: 
-          - Reactive power measurements
-          - Power factors (0-100 scale)
-          - CO2 emissions
-          - Time-based features (hour, day, month, etc.)
-          - Load type classification
-        
-        **Data Ranges from Training:**
-        - Usage_kWh: 3.17 - 25.02 kWh
-        - Lagging Reactive Power: 0.05 - 9.75 kVarh
-        - Leading Reactive Power: 0.0 - 4.46 kVarh
-        - CO2: 0.0 - 0.09 tCO2
-        - Lagging Power Factor: 60.0 - 99.99
-        - Leading Power Factor: 90.0 - 100.0
-        
-        **Model Performance:**
-        - R² Score: 0.9986
-        - RMSE: 1.60 kWh
-        - MAE: 0.54 kWh
-        """)
-    
-    # Data validation section
-    with st.expander("🔍 Data Validation"):
-        st.markdown("""
-        **Expected Input Ranges:**
-        - Ensure Lagging Power Factor is between 60-100
-        - Ensure Leading Power Factor is between 90-100  
-        - NSM is automatically calculated from time (0-86400 seconds)
-        - Date features are extracted automatically
-        
-        **Categorical Values:**
-        - WeekStatus: Weekday, Weekend
-        - Day_of_week: Monday, Tuesday, ..., Sunday
-        - Load_Type: Light_Load, Medium_Load, Maximum_Load
-        """)
+            import traceback
+            st.error(f"Full error traceback: {traceback.format_exc()}")
 
 if __name__ == "__main__":
     main()
