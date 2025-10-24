@@ -8,20 +8,25 @@ from datetime import datetime
 from pathlib import Path
 import matplotlib.pyplot as plt
 
-MODEL_PATH = Path("app/../models/energy_model.sav")
 
-# loading the model
+# load resources model
 @st.cache_resource
-def load_model():
-    if not MODEL_PATH.exists():
-        raise FileNotFoundError(f"model file not found at {MODEL_PATH}")
+def load_resources(path):
+    if not path.exists():
+        raise FileNotFoundError(f"resource file not found at {path}")
     
-    with open(MODEL_PATH, "rb") as f:
-        model = pickle.load(f)
+    with open(path, "rb") as f:
+        resource = pickle.load(f)
 
-    return model
+    return resource
 
-model = load_model()
+# resources paths
+model_path = Path("app/../models/steel_model.sav")
+encoder_path = Path("app/../models/label_encoder.pkl")
+
+# loading model and encoder
+model = load_resources(model_path)
+encoder = load_resources(encoder_path)
 
 # tittle
 st.title("Steel Industry Energy Consumption Predictor")
