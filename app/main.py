@@ -8,7 +8,7 @@ from pathlib import Path
 #loading model and encoder
 @st.cache_resource
 def load_model():
-    model_path = Path("app/../models/model.json")
+    model_path = Path("app/../models/xgb_model.json")
     if not model_path.exists():
         raise FileNotFoundError(f"Model file not found at {model_path}")
     model = xgb.XGBRegressor()
@@ -19,7 +19,7 @@ def load_model():
 
 @st.cache_resource
 def load_encoders():
-    encoder_path = Path("app/../models/encoder.pkl")
+    encoder_path = Path("app/../models/label_encoders.pkl")
     if not encoder_path.exists():
         raise FileNotFoundError(f"Encoder file not found at {encoder_path}")
     with open(encoder_path, "rb") as f:
@@ -130,3 +130,5 @@ if st.button("Predict Energy Usage (kWh)"):
 
 st.markdown("---")
 st.caption("Developed by Kami • Powered by XGBoost and Streamlit")
+
+
