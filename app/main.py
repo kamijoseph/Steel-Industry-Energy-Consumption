@@ -34,3 +34,10 @@ st.header("Input Parameters")
 date_input = st.date_input("Date")
 time_input = st.time_input("Time")
 dt = datetime.combine(date_input, time_input)
+
+# extract temporal features
+hour = dt.hour
+day = dt.day
+month = dt.month
+year = dt.year
+is_weekend = int(dt.weekday() >= 5)
