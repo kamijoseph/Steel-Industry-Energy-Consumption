@@ -41,3 +41,13 @@ day = dt.day
 month = dt.month
 year = dt.year
 is_weekend = int(dt.weekday() >= 5)
+
+# numerical inputs
+lagging_reactive = st.number_input("Lagging Current Reactve Power (kVarh)", value=0.0)
+leading_reactive = st.number_input("Leading Current Reactive Power (kVarh)", value=0.0)
+co2 = st.number_input("CO2 Emissions (tCO2)", value=0.0)
+lagging_power_factor = st.number_input("Lagging Current Power Factor", value=0.0)
+leading_power_factor = st.number_input("Leading Current Power Factor", value=0.0)
+nsm = st.number_input("Net Standard Minutes (NSM)", value=0.0)
+
+# categorical inputs
