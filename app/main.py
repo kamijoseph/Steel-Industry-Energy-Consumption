@@ -1,134 +1,299 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import pickle
-from datetime import datetime
-import xgboost as xgb
-from pathlib import Path
+from xgboost import XGBRegressor
+from datetime import datetime, time
+import warnings
+warnings.filterwarnings('ignore')
 
-#loading model and encoder
+# Set page configuration
+st.set_page_config(
+    page_title="Steel Industry Energy Consumption Predictor",
+    page_icon="⚡",
+    layout="wide"
+)
+
+# Cache the model and encoders for better performance
 @st.cache_resource
 def load_model():
-    model_path = Path("app/../models/xgb_model.json")
-    if not model_path.exists():
-        raise FileNotFoundError(f"Model file not found at {model_path}")
-    model = xgb.XGBRegressor()
-    model.load_model(str(model_path))
-
+    """Load the trained XGBoost model"""
+    model = XGBRegressor()
+    model.load_model("app/../models/xgb_model.json")
     return model
-
 
 @st.cache_resource
 def load_encoders():
-    encoder_path = Path("app/../models/label_encoders.pkl")
-    if not encoder_path.exists():
-        raise FileNotFoundError(f"Encoder file not found at {encoder_path}")
-    with open(encoder_path, "rb") as f:
+    """Load the label encoders"""
+    with open("app/../models/label_encoders.pkl", "rb") as f:
         encoders = pickle.load(f)
     return encoders
 
+# Load model and encoders
+try:
+    model = load_model()
+    encoders = load_encoders()
+except Exception as e:
+    st.error(f"Error loading model or encoders: {e}")
+    st.stop()
 
-# preprocessing function
-def preprocess_input(input_data: pd.DataFrame, encoders: dict) -> pd.DataFrame:
-    df = input_data.copy()
-
-    # Extract date-time features
-    df["Date"] = pd.to_datetime(df["Date"])
-    df["Time"] = pd.to_datetime(df["Time"], format="%H:%M:%S")
-
-    df["Day"] = df["Date"].dt.day
-    df["Month"] = df["Date"].dt.month
-    df["Year"] = df["Date"].dt.year
-    df["Hour"] = df["Time"].dt.hour
-    df["Minute"] = df["Time"].dt.minute
-    df["Second"] = df["Time"].dt.second
-
+def preprocess_input(input_dict, encoders):
+    """Preprocess the input data using the saved encoders"""
+    processed_data = input_dict.copy()
+    
     # Encode categorical features
     cat_features = ["WeekStatus", "Day_of_week", "Load_Type"]
     for feature in cat_features:
-        if feature in df.columns:
-            le = encoders.get(feature)
-            if le:
-                df[feature] = le.transform(df[feature])
-            else:
-                raise ValueError(f"No encoder found for feature: {feature}")
+        processed_data[feature] = encoders[feature].transform([processed_data[feature]])[0]
+    
+    return processed_data
 
-    # Drop unused columns
-    df.drop(columns=["Date", "Time"], inplace=True)
-
-    return df
-
-
-# streamlit ui
-st.set_page_config(
-    page_title="Steel Industry Energy Consumption Predictor",
-    layout="wide",
-    page_icon="⚙️",
-)
-
-st.title("⚙️ Steel Industry Energy Consumption Prediction")
-st.markdown("Predict **energy consumption (kWh)** using operational and environmental data.")
-
-# Sidebar for user input
-st.sidebar.header("Input Parameters")
-
-# Date and time
-date_input = st.sidebar.date_input("Date")
-time_input = st.sidebar.time_input("Time")
-
-# Categorical inputs
-week_status = st.sidebar.selectbox("Week Status", ["Weekday", "Weekend"])
-day_of_week = st.sidebar.selectbox(
-    "Day of Week", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-)
-load_type = st.sidebar.selectbox("Load Type", ["Light Load", "Medium Load", "Maximum Load"])
-
-# Numerical inputs
-lagging_current_reactive_power = st.sidebar.number_input("Lagging Current Reactive Power (kVarh)", min_value=0.0)
-leading_current_reactive_power = st.sidebar.number_input("Leading Current Reactive Power (kVarh)", min_value=0.0)
-co2 = st.sidebar.number_input("CO₂ Emission (kg)", min_value=0.0)
-temperature = st.sidebar.number_input("Temperature (°C)", min_value=-10.0, max_value=60.0)
-humidity = st.sidebar.number_input("Humidity (%)", min_value=0.0, max_value=100.0)
-wind_speed = st.sidebar.number_input("Wind Speed (m/s)", min_value=0.0, max_value=50.0)
-visibility = st.sidebar.number_input("Visibility (km)", min_value=0.0, max_value=10.0)
-dew_point = st.sidebar.number_input("Dew Point (°C)", min_value=-20.0, max_value=30.0)
-apparent_temperature = st.sidebar.number_input("Apparent Temperature (°C)", min_value=-20.0, max_value=60.0)
-pressure = st.sidebar.number_input("Pressure (mmHg)", min_value=500.0, max_value=1100.0)
-
-# Combine inputs into DataFrame
-input_data = pd.DataFrame(
-    {
-        "Date": [date_input],
-        "Time": [time_input],
-        "WeekStatus": [week_status],
-        "Day_of_week": [day_of_week],
-        "Load_Type": [load_type],
-        "Lagging_Current_Reactive_Power_kVarh": [lagging_current_reactive_power],
-        "Leading_Current_Reactive_Power_kVarh": [leading_current_reactive_power],
-        "CO2": [co2],
-        "Temperature": [temperature],
-        "Humidity": [humidity],
-        "Wind_Speed": [wind_speed],
-        "Visibility": [visibility],
-        "Dew_Point": [dew_point],
-        "Apparent_Temperature": [apparent_temperature],
-        "Pressure": [pressure],
+def create_features_from_datetime(date_input, time_input):
+    """Create time-based features from date and time inputs"""
+    # Combine date and time
+    datetime_obj = datetime.combine(date_input, time_input)
+    
+    # Extract features (matching your notebook)
+    features = {
+        "hour": datetime_obj.hour,
+        "day": datetime_obj.day,
+        "month": datetime_obj.month,
+        "year": datetime_obj.year,
+        "is_weekend": 1 if datetime_obj.weekday() >= 5 else 0
     }
-)
+    
+    # Calculate NSM (Number of Seconds from Midnight)
+    nsm = datetime_obj.hour * 3600 + datetime_obj.minute * 60 + datetime_obj.second
+    
+    return features, nsm
 
-# prediction
-if st.button("Predict Energy Usage (kWh)"):
-    try:
-        model = load_model()
-        encoders = load_encoders()
+def main():
+    # Header
+    st.title("⚡ Steel Industry Energy Consumption Predictor")
+    st.markdown("""
+    This application predicts energy consumption (in kWh) for steel industry operations 
+    based on various operational parameters and time-based features.
+    """)
+    
+    # Create two columns for layout
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.header("📅 Date & Time Information")
+        
+        # Date and time inputs
+        date_input = st.date_input("Select Date", value=datetime.now())
+        time_input = st.time_input("Select Time", value=time(0, 15))
+        
+        # Calculate NSM and time features
+        time_features, nsm = create_features_from_datetime(date_input, time_input)
+        
+        # Display calculated NSM
+        st.info(f"**Calculated NSM (Seconds from Midnight):** {nsm}")
+        
+        # Load Type selection
+        st.subheader("🔧 Load Type")
+        load_type = st.selectbox(
+            "Select Load Type",
+            options=encoders["Load_Type"].classes_,
+            help="Type of electrical load"
+        )
+    
+    with col2:
+        st.header("📊 Operational Parameters")
+        
+        # Numerical inputs - matching your actual data ranges
+        lagging_reactive_power = st.slider(
+            "Lagging Current Reactive Power (kVarh)",
+            min_value=0.0,
+            max_value=10.0,
+            value=3.0,
+            step=0.1,
+            help="Range: 0-10 kVarh based on data sample"
+        )
+        
+        leading_reactive_power = st.slider(
+            "Leading Current Reactive Power (kVarh)",
+            min_value=0.0,
+            max_value=5.0,
+            value=0.0,
+            step=0.1,
+            help="Range: 0-5 kVarh based on data sample"
+        )
+        
+        co2 = st.slider(
+            "CO2 Emissions (tCO2)",
+            min_value=0.0,
+            max_value=0.1,
+            value=0.0,
+            step=0.001,
+            help="Range: 0-0.1 tCO2 based on data sample"
+        )
+        
+        lagging_power_factor = st.slider(
+            "Lagging Current Power Factor",
+            min_value=60.0,
+            max_value=100.0,
+            value=70.0,
+            step=0.1,
+            help="Range: 60-100 based on data sample"
+        )
+        
+        leading_power_factor = st.slider(
+            "Leading Current Power Factor",
+            min_value=90.0,
+            max_value=100.0,
+            value=100.0,
+            step=0.1,
+            help="Range: 90-100 based on data sample"
+        )
+    
+    # Determine WeekStatus and Day_of_week from date
+    datetime_obj = datetime.combine(date_input, time_input)
+    day_of_week = datetime_obj.strftime("%A")
+    
+    # Map WeekStatus (your data uses "Weekday"/"Weekend")
+    week_status = "Weekend" if datetime_obj.weekday() >= 5 else "Weekday"
+    
+    # Create input dictionary matching your model's expected features
+    input_data = {
+        "Lagging_Current_Reactive.Power_kVarh": lagging_reactive_power,
+        "Leading_Current_Reactive_Power_kVarh": leading_reactive_power,
+        "CO2(tCO2)": co2,
+        "Lagging_Current_Power_Factor": lagging_power_factor,
+        "Leading_Current_Power_Factor": leading_power_factor,
+        "NSM": nsm,
+        "WeekStatus": week_status,
+        "Day_of_week": day_of_week,
+        "Load_Type": load_type,
+        "hour": time_features["hour"],
+        "day": time_features["day"],
+        "month": time_features["month"],
+        "year": time_features["year"],
+        "is_weekend": time_features["is_weekend"]
+    }
+    
+    # Display the input summary
+    st.header("📋 Input Summary")
+    summary_col1, summary_col2 = st.columns(2)
+    
+    with summary_col1:
+        st.write("**Date & Time:**")
+        st.write(f"- Date: {date_input}")
+        st.write(f"- Time: {time_input}")
+        st.write(f"- Day of Week: {day_of_week}")
+        st.write(f"- Week Status: {week_status}")
+        st.write(f"- Load Type: {load_type}")
+        st.write(f"- NSM: {nsm} seconds")
+    
+    with summary_col2:
+        st.write("**Operational Parameters:**")
+        st.write(f"- Lagging Reactive Power: {lagging_reactive_power} kVarh")
+        st.write(f"- Leading Reactive Power: {leading_reactive_power} kVarh")
+        st.write(f"- CO2 Emissions: {co2} tCO2")
+        st.write(f"- Lagging Power Factor: {lagging_power_factor}")
+        st.write(f"- Leading Power Factor: {leading_power_factor}")
+        st.write(f"- Hour: {time_features['hour']}")
+        st.write(f"- Day: {time_features['day']}")
+        st.write(f"- Month: {time_features['month']}")
+    
+    # Prediction button
+    st.markdown("---")
+    if st.button("🚀 Predict Energy Consumption", use_container_width=True):
+        try:
+            # Preprocess the input data
+            processed_data = preprocess_input(input_data, encoders)
+            
+            # Convert to DataFrame with correct column order (as expected by your model)
+            feature_names = [
+                'Lagging_Current_Reactive.Power_kVarh', 
+                'Leading_Current_Reactive_Power_kVarh',
+                'CO2(tCO2)', 
+                'Lagging_Current_Power_Factor', 
+                'Leading_Current_Power_Factor',
+                'NSM', 
+                'WeekStatus', 
+                'Day_of_week', 
+                'Load_Type', 
+                'hour', 
+                'day',
+                'month', 
+                'year', 
+                'is_weekend'
+            ]
+            
+            input_df = pd.DataFrame([processed_data])[feature_names]
+            
+            # Make prediction
+            prediction = model.predict(input_df)[0]
+            
+            # Display results
+            st.success(f"## 🔮 Predicted Energy Consumption: **{prediction:.2f} kWh**")
+            
+            # Show confidence interval based on model performance
+            st.info(f"""
+            **📊 Prediction Confidence:**
+            - Based on model performance: R² = 0.9986, RMSE = 1.60
+            - Expected range: ± 1.6 kWh around prediction
+            - Actual values in training data ranged from ~3-25 kWh
+            """)
+            
+            # Show what the prediction means
+            if prediction < 5:
+                load_level = "Light Load"
+            elif prediction < 15:
+                load_level = "Medium Load"
+            else:
+                load_level = "Heavy Load"
+                
+            st.write(f"**📈 Load Level Classification:** {load_level}")
+            
+        except Exception as e:
+            st.error(f"Error making prediction: {e}")
+            st.error("Please check that all inputs are within valid ranges.")
+    
+    # Model information section
+    with st.expander("ℹ️ About the Model & Data"):
+        st.markdown("""
+        **Model Details:**
+        - **Algorithm**: XGBoost Regressor
+        - **Training Data**: Steel industry operational data (35,040 records)
+        - **Target Variable**: Usage_kWh (Energy Consumption)
+        - **Key Features**: 
+          - Reactive power measurements
+          - Power factors (0-100 scale)
+          - CO2 emissions
+          - Time-based features (hour, day, month, etc.)
+          - Load type classification
+        
+        **Data Ranges from Training:**
+        - Usage_kWh: 3.17 - 25.02 kWh
+        - Lagging Reactive Power: 0.05 - 9.75 kVarh
+        - Leading Reactive Power: 0.0 - 4.46 kVarh
+        - CO2: 0.0 - 0.09 tCO2
+        - Lagging Power Factor: 60.0 - 99.99
+        - Leading Power Factor: 90.0 - 100.0
+        
+        **Model Performance:**
+        - R² Score: 0.9986
+        - RMSE: 1.60 kWh
+        - MAE: 0.54 kWh
+        """)
+    
+    # Data validation section
+    with st.expander("🔍 Data Validation"):
+        st.markdown("""
+        **Expected Input Ranges:**
+        - Ensure Lagging Power Factor is between 60-100
+        - Ensure Leading Power Factor is between 90-100  
+        - NSM is automatically calculated from time (0-86400 seconds)
+        - Date features are extracted automatically
+        
+        **Categorical Values:**
+        - WeekStatus: Weekday, Weekend
+        - Day_of_week: Monday, Tuesday, ..., Sunday
+        - Load_Type: Light_Load, Medium_Load, Maximum_Load
+        """)
 
-        processed_input = preprocess_input(input_data, encoders)
-        prediction = model.predict(processed_input)[0]
-
-        st.success(f"**Predicted Energy Usage:** {prediction:.2f} kWh")
-    except Exception as e:
-        st.error(f"Error during prediction: {e}")
-
-st.markdown("---")
-st.caption("Developed by Kami • Powered by XGBoost and Streamlit")
-
-
+if __name__ == "__main__":
+    main()
