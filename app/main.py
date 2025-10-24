@@ -34,12 +34,12 @@ def load_resources(path: Path, resource_type: str):
     return resource
 
 # resources paths
-model_path = Path("app/../models/steel_model.json")
+model_path = Path("app/../models/xgboost_energy_model.json")
 encoder_path = Path("app/../models/label_encoder.pkl")
 
 # loading model and encoder
-model = load_resources(model_path)
-encoder = load_resources(encoder_path)
+model = load_resources(model_path, "xgboost")
+encoder = load_resources(encoder_path, "pickle")
 
 # tittle
 st.title("Steel Industry Energy Consumption Predictor")
