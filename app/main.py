@@ -7,24 +7,34 @@ import pickle
 from datetime import datetime
 from pathlib import Path
 import matplotlib.pyplot as plt
+import xgboost as xgb
 
 
 # load resources model
 @st.cache_resource
-def load_resources(path):
+def load_resources(path: Path, resource_type: str):
     if not path.exists():
         raise FileNotFoundError(f"resource file not found at {path}")
     
     try:
-        with open(path, "rb") as f:
-            resource = pickle.load(f)
+        if resource_type == "pickle":
+            with open(path, "rb") as f:
+                resource = pickle.load(f)
+        
+        elif resource_type == "xgboost":
+            resource = xgb.XGBRegressor()
+            resource.load_model(str(path))
+
+        else:
+            raise ValueError(f"unknown resource_type: {resource_type}")
+        
     except Exception as e:
         raise RuntimeError(f"failed to  load resources from {path}: {e}")
 
     return resource
 
 # resources paths
-model_path = Path("app/../models/steel_model.sav")
+model_path = Path("app/../models/steel_model.json")
 encoder_path = Path("app/../models/label_encoder.pkl")
 
 # loading model and encoder
